@@ -1,6 +1,7 @@
 import streamlit as st
 import meilisearch
 import os
+import re
 from openai import OpenAI
 
 # === Konfiguration ===
@@ -14,6 +15,20 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 # === Verbindung Meilisearch ===
 client = meilisearch.Client(MEILI_URL, MEILI_API_KEY)
 index = client.index(INDEX_NAME)
+
+# === Hilfsfunktion: relevante Textstellen extrahieren ===
+def extract_snippets(text, query, context_length=200):
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    matches = list(pattern.finditer(text))
+    snippets = []
+
+    for match in matches[:3]:  # maximal 3 Treffer pro Dokument
+        start = max(0, match.start() - context_length)
+        end = min(len(text), match.end() + context_length)
+        snippet = text[start:end].strip()
+        snippets.append(f"...{snippet}...")
+
+    return "\n\n".join(snippets) if snippets else text[:1000]
 
 # === Streamlit UI ===
 st.set_page_config(page_title="Dokumentenrecherche mit GPT", layout="wide")
@@ -31,15 +46,15 @@ if query:
         st.subheader("📄 Ergebnisse:")
         for i, doc in enumerate(docs):
             with st.expander(f"{i+1}. {doc['filename']}"):
-                snippet = doc["content"][:1000] + ("..." if len(doc["content"]) > 1000 else "")
-                st.write(snippet)
+                relevant_snippets = extract_snippets(doc["content"], query)
+                st.write(relevant_snippets)
                 if st.button("🧠 GPT-Zusammenfassung", key=f"gpt_{i}"):
                     with st.spinner("Frage wird verarbeitet..."):
-                        prompt = f"""Du bist ein Experte für technische Dokumentation. Der Nutzer hat folgende Frage: '{query}'. Hier ist ein Auszug aus einem Dokument:
+                        prompt = f"""Du bist ein Experte für technische Dokumentation. Der Nutzer hat folgende Frage: '{query}'. Hier sind relevante Textausschnitte aus einem Dokument:
 
-{snippet}
+{relevant_snippets}
 
-Bitte beantworte die Frage basierend auf diesem Text."""
+Bitte beantworte die Frage basierend auf diesen Textstellen."""
                         try:
                             response = openai_client.chat.completions.create(
                                 model="o4-mini-2025-04-16",
