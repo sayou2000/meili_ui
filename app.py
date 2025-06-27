@@ -41,7 +41,7 @@ if query:
 Bitte beantworte die Frage basierend auf diesem Text."""
                         try:
                             response = openai.ChatCompletion.create(
-                                model="gpt-4",
+                                model="o4-mini-2025-04-16",
                                 messages=[
                                     {"role": "system", "content": "Du hilfst bei der Auswertung technischer Dokumente."},
                                     {"role": "user", "content": prompt}
