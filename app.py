@@ -18,13 +18,13 @@ index = client.index(INDEX_NAME)
 
 # === Hilfsfunktion: relevante Textstellen extrahieren ===
 def extract_snippets(text, query, context_length=200):
-    pattern = re.compile(re.escape(query), re.IGNORECASE)
-    matches = list(pattern.finditer(text))
+    keywords = query.lower().split()
+    matches = [m.start() for k in keywords for m in re.finditer(re.escape(k), text.lower())]
     snippets = []
 
-    for match in matches[:3]:  # maximal 3 Treffer pro Dokument
-        start = max(0, match.start() - context_length)
-        end = min(len(text), match.end() + context_length)
+    for pos in sorted(matches[:5]):  # maximal 5 Treffer pro Dokument
+        start = max(0, pos - context_length)
+        end = min(len(text), pos + context_length)
         snippet = text[start:end].strip()
         snippets.append(f"...{snippet}...")
 
