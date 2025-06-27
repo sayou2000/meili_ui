@@ -1,14 +1,15 @@
 import streamlit as st
 import meilisearch
-import openai
 import os
+from openai import OpenAI
 
 # === Konfiguration ===
 MEILI_URL = "https://search.plgrnd.de"
 MEILI_API_KEY = os.getenv("MEILI_API_KEY")
 INDEX_NAME = "testdokumente"
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # === Verbindung Meilisearch ===
 client = meilisearch.Client(MEILI_URL, MEILI_API_KEY)
@@ -40,14 +41,14 @@ if query:
 
 Bitte beantworte die Frage basierend auf diesem Text."""
                         try:
-                            response = openai.ChatCompletion.create(
+                            response = openai_client.chat.completions.create(
                                 model="o4-mini-2025-04-16",
                                 messages=[
                                     {"role": "system", "content": "Du hilfst bei der Auswertung technischer Dokumente."},
                                     {"role": "user", "content": prompt}
                                 ]
                             )
-                            answer = response["choices"][0]["message"]["content"]
+                            answer = response.choices[0].message.content
                             st.success("Antwort:")
                             st.markdown(answer)
                         except Exception as e:
