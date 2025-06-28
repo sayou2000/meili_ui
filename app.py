@@ -3,29 +3,31 @@ import streamlit as st
 from meilisearch import Client
 import requests
 
-# --- Konfiguration aus Umgebungsvariablen ---
-MEILI_URL = os.getenv("MEILI_URL")
-MEILI_API_KEY = os.getenv("MEILI_API_KEY")
-MEILI_INDEX = os.getenv("MEILI_INDEX", "testdokumente")
+# --- Konfiguration über Streamlit Secrets ---
+# In Streamlit Cloud: Manage App > Secrets
+# {"MEILI_URL": "https://...", "MEILI_API_KEY": "...", "MEILI_INDEX": "testdokumente", "OPENAI_API_KEY": "...", "OPENAI_MODEL": "o4-mini-2025-04-16"}
+MEILI_URL = st.secrets.get("MEILI_URL")
+MEILI_API_KEY = st.secrets.get("MEILI_API_KEY")
+MEILI_INDEX = st.secrets.get("MEILI_INDEX", "testdokumente")
+OPENAI_KEY = st.secrets.get("OPENAI_API_KEY")
+OPENAI_MODEL = st.secrets.get("OPENAI_MODEL", "o4-mini-2025-04-16")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "o4-mini-2025-04-16")
 
 # Validierung der Schlüssel
 if not MEILI_URL or not MEILI_API_KEY:
-    st.error("Fehler: Meilisearch-Zugangsdaten fehlen. Bitte MEILI_URL und MEILI_API_KEY setzen.")
+    st.error("Fehler: Meilisearch-Zugangsdaten fehlen. Bitte unter Secrets setzen: MEILI_URL & MEILI_API_KEY.")
     st.stop()
 if not OPENAI_KEY:
-    st.error("Fehler: OpenAI-API-Schlüssel fehlt. Bitte OPENAI_API_KEY setzen.")
+    st.error("Fehler: OpenAI-API-Schlüssel fehlt. Bitte unter Secrets setzen: OPENAI_API_KEY.")
     st.stop()
 
 # --- Meilisearch-Client (gecached) ---
 @st.cache_resource
-def init_meili_index(url: str, key: str, index_name: str):
-    client = Client(url, key)
-    return client.index(index_name)
+func def init_meili_index():
+    client = Client(MEILI_URL, MEILI_API_KEY)
+    return client.index(MEILI_INDEX)
 
-index = init_meili_index(MEILI_URL, MEILI_API_KEY, MEILI_INDEX)
+index = init_meili_index()
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="🔎 Intelligente Dokumentensuche", layout="wide")
@@ -67,24 +69,15 @@ if submit and query:
                 btn_key = f"ai_{hit.get('id')}"
                 if st.button("🧠 Kontext-KI-Analyse", key=btn_key):
                     with st.spinner("KI-Analyse läuft..."):
-                        # Markierungen entfernen
-                        clean = snippet.replace("<mark style='background-color:yellow'>", "")
-                        clean = clean.replace("</mark>", "")
+                        clean = snippet.replace("<mark style='background-color:yellow'>", "").replace("</mark>", "")
                         prompt = (
-                            f"Du bist ein Experte für Dokumentenanalyse."
-                            f"\nNutzerfrage: '{query}'\n\n"
-                            f"Relevante Textausschnitte:\n{clean}\n\n"
-                            f"Bitte beantworte **ausschließlich** auf Basis dieses Textes und verweise auf die Stellen."
+                            f"Du bist ein Experte für Dokumentenanalyse.\n"
+                            f"Nutzerfrage: '{query}'\n\n"
+                            f"Relevanter Textausschnitt aus '{filename}':\n---\n{clean}\n---\n\n"
+                            f"Bitte beantworte ausschließlich auf diesem Text basierend und verweise auf Stellen."
                         )
-                        headers = {
-                            "Authorization": f"Bearer {OPENAI_KEY}",
-                            "Content-Type": "application/json"
-                        }
-                        body = {
-                            "model": OPENAI_MODEL,
-                            "messages": [{"role": "user", "content": prompt}],
-                            "temperature": 0.2
-                        }
+                        headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
+                        body = {"model": OPENAI_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2}
                         try:
                             r = requests.post(OPENAI_URL, headers=headers, json=body, timeout=20)
                             r.raise_for_status()
@@ -97,10 +90,10 @@ if submit and query:
 st.sidebar.header("ℹ️ Info und Sicherheit")
 st.sidebar.markdown(
     """
-    - **Meilisearch URL** und **Key** bitte als Umgebungsvariablen setzen.
-    - **OpenAI-API-Key** niemals im Code ablegen, sondern als Secret konfigurieren.
-    - Secrets in Streamlit Cloud unter "Manage App > Secrets" hinzufügen.
+    • Legen Sie Ihre Meilisearch- und OpenAI-Zugangsdaten in Streamlit Secrets ab.
+    • Öffnen Sie unter Streamlit Cloud: *Manage App > Secrets*.
+    • Fügen Sie ein JSON-Dokument mit den Schlüssel-Wert-Paaren hinzu.
     """
 )
-st.sidebar.markdown(f"**Index:** `{MEILI_INDEX}`")
+st.sidebar.markdown(f"**Meilisearch Index:** `{MEILI_INDEX}`")
 st.sidebar.markdown(f"**KI-Modell:** `{OPENAI_MODEL}`")
