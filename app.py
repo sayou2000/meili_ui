@@ -31,15 +31,17 @@ query = st.text_input("Was möchten Sie wissen oder finden?", key="search_input"
 if st.button("Suchen") and query:
     with st.spinner("Suche läuft..."):
         try:
-            search_params = {
-                "q": query,
+            # Meilisearch erwartet das Suchwort als ersten Parameter
+            search_kwargs = {
                 "limit": 10,
                 "attributesToHighlight": ["content"],
                 "attributesToSnippet": ["content:200"],
                 "highlightPreTag": "<mark style='background-color:yellow'>",
                 "highlightPostTag": "</mark>",
             }
-            results = index.search(**search_params)["hits"]
+            # query als erstes Argument übergeben
+            response = index.search(query, **search_kwargs)
+            results = response.get("hits", [])
             if not results:
                 st.warning("Keine Treffer gefunden.")
             else:
