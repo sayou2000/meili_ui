@@ -4,8 +4,6 @@ from meilisearch import Client
 import requests
 
 # --- Konfiguration über Streamlit Secrets ---
-# In Streamlit Cloud: Manage App > Secrets
-# {"MEILI_URL": "https://...", "MEILI_API_KEY": "...", "MEILI_INDEX": "testdokumente", "OPENAI_API_KEY": "...", "OPENAI_MODEL": "o4-mini-2025-04-16"}
 MEILI_URL = st.secrets.get("MEILI_URL")
 MEILI_API_KEY = st.secrets.get("MEILI_API_KEY")
 MEILI_INDEX = st.secrets.get("MEILI_INDEX", "testdokumente")
@@ -41,7 +39,6 @@ with st.form(key="search_form"):
 if submit and query:
     with st.spinner("Suche in Meilisearch läuft..."):
         try:
-            # Korrigierte Parameter gemäß aktueller Meilisearch API
             response = index.search(query, {
                 "limit": 10,
                 "attributesToHighlight": ["content"],
@@ -57,33 +54,36 @@ if submit and query:
         st.warning("Keine Treffer gefunden. Versuchen Sie eine andere Suchanfrage.")
     else:
         st.subheader(f"{len(hits)} Treffer für '{query}':")
+
+        all_snippets = []
         for hit in hits:
             filename = hit.get("filename", hit.get("id", "Dokument"))
             snippet = hit.get("_formatted", {}).get("content", "")
+            clean = snippet.replace("<mark style='background-color:yellow'>", "").replace("</mark>", "")
+            all_snippets.append(f"Dokument: {filename}\n---\n{clean}\n")
 
             with st.expander(filename):
                 st.markdown(snippet, unsafe_allow_html=True)
 
-                # KI-Analyse
-                btn_key = f"ai_{hit.get('id')}"
-                if st.button("🧠 Kontext-KI-Analyse", key=btn_key):
-                    with st.spinner("KI-Analyse läuft..."):
-                        clean = snippet.replace("<mark style='background-color:yellow'>", "").replace("</mark>", "")
-                        prompt = (
-                            f"Du bist ein Experte für Dokumentenanalyse.\n"
-                            f"Nutzerfrage: '{query}'\n\n"
-                            f"Relevanter Textausschnitt aus '{filename}':\n---\n{clean}\n---\n\n"
-                            f"Bitte beantworte ausschließlich auf diesem Text basierend und verweise auf Stellen."
-                        )
-                        headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
-                        body = {"model": OPENAI_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2}
-                        try:
-                            r = requests.post(OPENAI_URL, headers=headers, json=body, timeout=20)
-                            r.raise_for_status()
-                            answer = r.json()["choices"][0]["message"]["content"]
-                            st.success(answer)
-                        except requests.RequestException as e:
-                            st.error(f"OpenAI-Fehler: {e}")
+        # Gesamte KI-Analyse auf alle Snippets
+        if st.button("🧠 KI-Zusammenfassung aller Fundstellen"):
+            with st.spinner("KI analysiert mehrere Fundstellen..."):
+                full_context = "\n\n".join(all_snippets)
+                prompt = (
+                    f"Du bist ein Experte für Dokumentenanalyse.\n"
+                    f"Nutzerfrage: '{query}'\n\n"
+                    f"Hier sind relevante Textauszüge aus verschiedenen Dokumenten:\n---\n{full_context}\n---\n\n"
+                    f"Bitte beantworte die Frage basierend auf diesen Auszügen so prägnant und fundiert wie möglich."
+                )
+                headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
+                body = {"model": OPENAI_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2}
+                try:
+                    r = requests.post(OPENAI_URL, headers=headers, json=body, timeout=30)
+                    r.raise_for_status()
+                    answer = r.json()["choices"][0]["message"]["content"]
+                    st.success(answer)
+                except requests.RequestException as e:
+                    st.error(f"OpenAI-Fehler: {e}")
 
 # --- Sidebar ---
 st.sidebar.header("ℹ️ Info und Sicherheit")
