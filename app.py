@@ -1,128 +1,109 @@
+```python
 import os
 import streamlit as st
 from meilisearch import Client
 import requests
 
-# Optionales Laden von .env, wenn dotenv installiert ist
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-# --- Konfiguration ---
-# Umgebungsvariablen sicher laden
+# --- Konfiguration aus Umgebungsvariablen ---
 MEILI_URL = os.getenv("MEILI_URL")
 MEILI_API_KEY = os.getenv("MEILI_API_KEY")
-INDEX_NAME = os.getenv("MEILI_INDEX", "testdokumente")
+MEILI_INDEX = os.getenv("MEILI_INDEX", "testdokumente")
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini") # Aktualisiert auf ein häufigeres Modell
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "o4-mini-2025-04-16")
 
-# --- Initialisierung (gecached) ---
+# Validierung der Schlüssel
+if not MEILI_URL or not MEILI_API_KEY:
+    st.error("Fehler: Meilisearch-Zugangsdaten fehlen. Bitte MEILI_URL und MEILI_API_KEY setzen.")
+    st.stop()
+if not OPENAI_KEY:
+    st.error("Fehler: OpenAI-API-Schlüssel fehlt. Bitte OPENAI_API_KEY setzen.")
+    st.stop()
+
+# --- Meilisearch-Client (gecached) ---
 @st.cache_resource
-def get_meilisearch_client():
-    """Initialisiert den Meilisearch-Client und hält ihn im Cache."""
-    if not MEILI_URL or not MEILI_API_KEY:
-        st.error("Meilisearch URL oder API Key nicht konfiguriert! Bitte als Umgebungsvariable setzen.")
-        return None
-    client = Client(MEILI_URL, MEILI_API_KEY)
-    return client.index(INDEX_NAME)
+def init_meili_index(url: str, key: str, index_name: str):
+    client = Client(url, key)
+    return client.index(index_name)
 
-index = get_meilisearch_client()
+index = init_meili_index(MEILI_URL, MEILI_API_KEY, MEILI_INDEX)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="🔎 Intelligente Dokumentensuche", layout="wide")
 st.title("🔎 Intelligente Dokumentensuche")
 
-# Initialisiere Session State, falls noch nicht vorhanden
-if 'search_results' not in st.session_state:
-    st.session_state.search_results = None
+# Sucheingabe als Formular
+with st.form(key="search_form"):
+    query = st.text_input("Suchanfrage", placeholder="z.B. SAP Instandhaltung")
+    submit = st.form_submit_button("🔍 Suchen")
 
-# Sucheingabe-Formular für bessere Kontrolle
-with st.form(key='search_form'):
-    query = st.text_input("Was möchten Sie wissen oder finden?", key="search_input")
-    submit_button = st.form_submit_button(label='Suchen')
-
-# Logik für die Suche
-if submit_button and query and index:
-    with st.spinner("Suche läuft..."):
+if submit and query:
+    with st.spinner("Suche in Meilisearch läuft..."):
         try:
-            # Suchparameter als Dictionary definieren
-            search_params = {
+            params = {
                 "limit": 10,
                 "attributesToHighlight": ["content"],
                 "attributesToSnippet": ["content:200"],
                 "highlightPreTag": "<mark style='background-color:yellow'>",
                 "highlightPostTag": "</mark>",
             }
-            # KORREKTUR: Das Dictionary direkt übergeben, nicht entpacken
-            response = index.search(query, search_params)
-            st.session_state.search_results = response.get("hits", [])
-        except Exception as e:
-            st.error(f"Fehler bei der Meilisearch-Suche: {e}")
-            st.session_state.search_results = [] # Fehlerfall behandeln
+            response = index.search(query, params)
+            hits = response.get("hits", [])
+        except Exception as err:
+            st.error(f"Meilisearch-Fehler: {err}")
+            hits = []
 
-# Ergebnisse anzeigen, wenn vorhanden
-if st.session_state.search_results is not None:
-    results = st.session_state.search_results
-    if not results:
-        st.warning("Keine Treffer für Ihre Anfrage gefunden.")
+    if not hits:
+        st.warning("Keine Treffer gefunden."
+                   " Versuchen Sie eine andere Suchanfrage.")
     else:
-        st.subheader(f"{len(results)} Treffer gefunden:")
-        for i, hit in enumerate(results):
-            # Verwendung eines Expanders für eine saubere Darstellung
-            with st.expander(f"**Dokument: {hit.get('filename', f'Treffer {i+1}')}**"):
-                # Formatierten Inhalt anzeigen
-                st.markdown(
-                    hit.get("_formatted", {}).get("content", "Kein Vorschau-Inhalt verfügbar."),
-                    unsafe_allow_html=True
-                )
+        st.subheader(f"{len(hits)} Treffer für '{query}':")
+        for hit in hits:
+            filename = hit.get("filename", hit.get("id", "Dokument"))
+            snippet = hit.get("_formatted", {}).get("content", "")
 
-                # KI-Analyse Button
-                analyze_key = f"analyze_{hit.get('id', i)}"
-                if st.button("🧠 Kontextbezogene KI-Analyse durchführen", key=analyze_key):
-                    with st.spinner("Dokument wird mit KI analysiert..."):
-                        snippet = hit.get("_formatted", {}).get("content", "")
-                        # Markierungen für den Prompt entfernen
-                        clean_snippet = snippet.replace("<mark style='background-color:yellow'>", "").replace("</mark>", "")
-                        
+            with st.expander(filename):
+                st.markdown(snippet, unsafe_allow_html=True)
+
+                # KI-Analyse
+                btn_key = f"ai_{hit.get('id')}"
+                if st.button("🧠 Kontext-KI-Analyse", key=btn_key):
+                    with st.spinner("KI-Analyse läuft..."):
+                        # Markierungen entfernen
+                        clean = snippet.replace("<mark style='background-color:yellow'>", "")
+                        clean = clean.replace("</mark>", "")
                         prompt = (
-                            f"Du bist ein hilfreicher Assistent für Dokumentenanalyse.\n"
-                            f"Beantworte die folgende Nutzerfrage präzise und ausschließlich basierend auf dem bereitgestellten Textausschnitt.\n\n"
-                            f"Nutzerfrage: \"{query}\"\n\n"
-                            f"Relevanter Textausschnitt aus dem Dokument '{hit.get('filename', 'unbekannt')}':\n---\n{clean_snippet}\n---\n\n"
-                            f"Deine Antwort:"
+                            f"Du bist ein Experte für Dokumentenanalyse."
+                            f"\nNutzerfrage: '{query}'\n\n"
+                            f"Relevante Textausschnitte:\n{clean}\n\n"
+                            f"Bitte beantworte **ausschließlich** auf Basis dieses Textes und verweise auf die Stellen."
                         )
-                        
-                        headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
-                        payload = {"model": MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2}
-                        
+                        headers = {
+                            "Authorization": f"Bearer {OPENAI_KEY}",
+                            "Content-Type": "application/json"
+                        }
+                        body = {
+                            "model": OPENAI_MODEL,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.2
+                        }
                         try:
-                            resp = requests.post(OPENAI_URL, headers=headers, json=payload, timeout=30)
-                            resp.raise_for_status() # Löst einen Fehler bei 4xx oder 5xx Antworten aus
-                            
-                            ai_answer = resp.json()["choices"][0]["message"]["content"]
-                            st.info(f"**KI-Analyse:**\n{ai_answer}")
-
-                        except requests.exceptions.RequestException as e:
-                            st.error(f"Fehler bei der Verbindung zur KI-API: {e}")
-                        except Exception as e:
-                            st.error(f"Ein unerwarteter Fehler bei der KI-Analyse ist aufgetreten: {e}")
+                            r = requests.post(OPENAI_URL, headers=headers, json=body, timeout=20)
+                            r.raise_for_status()
+                            answer = r.json()["choices"][0]["message"]["content"]
+                            st.success(answer)
+                        except requests.RequestException as e:
+                            st.error(f"OpenAI-Fehler: {e}")
 
 # --- Sidebar ---
-st.sidebar.header("ℹ️ Info")
+st.sidebar.header("ℹ️ Info und Sicherheit")
 st.sidebar.markdown(
     """
-    Diese App durchsucht einen Meilisearch-Index und ermöglicht eine kontextbezogene Analyse der Suchergebnisse mittels einer KI.
-
-    **Verwendung:**
-    1. Suchanfrage eingeben und auf "Suchen" klicken.
-    2. Die gefundenen Dokumente werden unten aufgelistet.
-    3. Klappen Sie ein Dokument auf, um die Details zu sehen.
-    4. Klicken Sie auf "KI-Analyse", um die KI die Relevanz des Textes für Ihre Frage bewerten zu lassen.
+    - **Meilisearch URL** und **Key** bitte als Umgebungsvariablen setzen.
+    - **OpenAI-API-Key** niemals im Code ablegen, sondern als Secret konfigurieren.
+    - Secrets in Streamlit Cloud unter "Manage App > Secrets" hinzufügen.
     """
 )
-st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Meilisearch Index:** `{INDEX_NAME}`")
-st.sidebar.markdown(f"**KI Modell:** `{MODEL}`")
+st.sidebar.markdown(f"**Index:** `{MEILI_INDEX}`")
+st.sidebar.markdown(f"**KI-Modell:** `{OPENAI_MODEL}`")
+```
