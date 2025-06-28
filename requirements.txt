@@ -1,3 +1,4 @@
 streamlit
 meilisearch
 openai
+python-dotenv
