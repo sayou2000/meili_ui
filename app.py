@@ -42,14 +42,12 @@ if submit and query:
     with st.spinner("Suche in Meilisearch läuft..."):
         try:
             # Korrigierte Parameter gemäß aktueller Meilisearch API
-            params = {
-                "q": query,
+            response = index.search(query, {
                 "limit": 10,
                 "attributesToHighlight": ["content"],
                 "highlightPreTag": "<mark style='background-color:yellow'>",
                 "highlightPostTag": "</mark>"
-            }
-            response = index.search(**params)
+            })
             hits = response.get("hits", [])
         except Exception as err:
             st.error(f"Meilisearch-Fehler: {err}")
