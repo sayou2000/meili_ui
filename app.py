@@ -1,4 +1,3 @@
-```python
 import os
 import streamlit as st
 from meilisearch import Client
@@ -54,8 +53,7 @@ if submit and query:
             hits = []
 
     if not hits:
-        st.warning("Keine Treffer gefunden."
-                   " Versuchen Sie eine andere Suchanfrage.")
+        st.warning("Keine Treffer gefunden. Versuchen Sie eine andere Suchanfrage.")
     else:
         st.subheader(f"{len(hits)} Treffer für '{query}':")
         for hit in hits:
@@ -106,4 +104,3 @@ st.sidebar.markdown(
 )
 st.sidebar.markdown(f"**Index:** `{MEILI_INDEX}`")
 st.sidebar.markdown(f"**KI-Modell:** `{OPENAI_MODEL}`")
-```
