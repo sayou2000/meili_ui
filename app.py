@@ -23,7 +23,7 @@ if not OPENAI_KEY:
 
 # --- Meilisearch-Client (gecached) ---
 @st.cache_resource
-func def init_meili_index():
+def init_meili_index():
     client = Client(MEILI_URL, MEILI_API_KEY)
     return client.index(MEILI_INDEX)
 
